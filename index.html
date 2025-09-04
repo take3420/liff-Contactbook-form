@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>連絡帳（LIFF）</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    :root { --radius: 14px; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans JP", sans-serif; margin: 0; background: #f6f7fb; color: #222; }
+    .wrap { max-width: 680px; margin: 0 auto; padding: 24px 16px 40px; }
+    .card { background: #fff; border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,.08); padding: 20px; }
+    h1 { font-size: 20px; margin: 0 0 16px; }
+    p.desc { margin: 0 0 16px; color: #555; font-size: 14px; }
+    form { display: grid; gap: 14px; }
+    .row { display: grid; gap: 8px; }
+    label { font-size: 13px; color: #333; }
+    input[type="text"], input[type="number"], select, textarea {
+      width: 100%; font-size: 16px; padding: 12px; border: 1px solid #e1e4ea; border-radius: 12px; outline: none; background: #fafbff;
+    }
+    textarea { min-height: 110px; resize: vertical; }
+    .hint { font-size: 12px; color: #6b7280; }
+    .actions { display: flex; gap: 10px; align-items: center; }
+    button {
+      appearance: none; border: 0; padding: 12px 16px; border-radius: 999px; font-size: 16px; cursor: pointer; transition: .2s transform ease;
+      background: #06C755; color: #fff; font-weight: 700;
+    }
+    button.sec { background: #eef2f7; color: #111; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+    .err { background: #fff4f4; color: #b42318; border: 1px solid #fecaca; padding: 10px 12px; border-radius: 10px; font-size: 14px; display: none; }
+    .ok { background: #effaf3; color: #087443; border: 1px solid #bbf7d0; padding: 12px; border-radius: 10px; font-size: 15px; display: none; }
+    .meta { font-size: 12px; color: #6b7280; text-align: right; margin-top: 6px; }
+    .badge { display: inline-block; font-size: 11px; background: #eef2ff; color: #3730a3; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
+    .req::after { content:" *"; color:#ef4444; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>連絡帳フォーム <span class="badge">LIFF</span></h1>
+      <p class="desc">
+        朝の体調や連絡事項を入力して送信してください。先生からの返信はLINEトークで届きます。
+      </p>
+
+      <div id="alert" class="err"></div>
+      <div id="ok" class="ok"></div>
+
+      <form id="reportForm">
+        <div class="row">
+          <label class="req" for="name">お子さまの名前</label>
+          <input id="name" name="name" type="text" inputmode="kana" placeholder="例）たろう" required />
+          <div class="hint">※ LINEの表示名とは別に、園児名をご記入ください</div>
+        </div>
+
+        <div class="row">
+          <label class="req" for="temp">体温（℃）</label>
+          <input id="temp" name="temp" type="number" step="0.1" min="34" max="41" placeholder="例）36.8" required />
+        </div>
+
+        <div class="row">
+          <label class="req" for="condition">体調</label>
+          <select id="condition" name="condition" required>
+            <option value="">選択してください</option>
+            <option>元気</option>
+            <option>少しだるい</option>
+            <option>咳・鼻水あり</option>
+            <option>発熱あり</option>
+            <option>その他</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <label for="message">連絡事項</label>
+          <textarea id="message" name="message" placeholder="例）薬を持たせました。お迎えは17:30予定です。"></textarea>
+        </div>
+
+        <!-- hidden fields -->
+        <input type="hidden" id="userId" name="userId" />
+        <input type="hidden" id="clientTime" name="clientTime" />
+
+        <div class="actions">
+          <button id="submitBtn" type="submit">送信する</button>
+          <button type="button" class="sec" id="closeBtn">閉じる</button>
+        </div>
+        <div class="meta" id="loginMeta">LIFF状態: 未初期化</div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // ====== 置き換えてください ======
+    const LIFF_ID = "★あなたのLIFF_ID★"; // 例: 2000000000-xxxxxxx
+    const GAS_URL = "★あなたのGAS_Webアプリ_URL★"; // doPostを公開したURL
+    // =================================
+
+    const els = {
+      form: document.getElementById('reportForm'),
+      name: document.getElementById('name'),
+      temp: document.getElementById('temp'),
+      condition: document.getElementById('condition'),
+      message: document.getElementById('message'),
+      userId: document.getElementById('userId'),
+      clientTime: document.getElementById('clientTime'),
+      alert: document.getElementById('alert'),
+      ok: document.getElementById('ok'),
+      submitBtn: document.getElementById('submitBtn'),
+      closeBtn: document.getElementById('closeBtn'),
+      loginMeta: document.getElementById('loginMeta'),
+    };
+
+    function setAlert(msg){ els.alert.textContent = msg; els.alert.style.display = 'block'; }
+    function clearAlert(){ els.alert.style.display = 'none'; els.alert.textContent = ''; }
+    function setOk(msg){ els.ok.textContent = msg; els.ok.style.display = 'block'; }
+    function clearOk(){ els.ok.style.display = 'none'; els.ok.textContent = ''; }
+
+    function setLoading(loading){
+      els.submitBtn.disabled = loading;
+      els.submitBtn.textContent = loading ? '送信中…' : '送信する';
+    }
+
+    // === LIFF 初期化 ===
+    (async () => {
+      try {
+        els.loginMeta.textContent = 'LIFF状態: 初期化中…';
+        await liff.init({ liffId: LIFF_ID });
+
+        if (!liff.isLoggedIn()) {
+          els.loginMeta.textContent = 'LIFF状態: 未ログイン → ログインへ遷移';
+          liff.login();
+          return; // ログイン後に再読込される
+        }
+
+        els.loginMeta.textContent = 'LIFF状態: ログイン済み';
+        const profile = await liff.getProfile();
+        els.userId.value = profile.userId || '';
+
+        // 参考: LINEの表示名をヒントに入れる（園児名の入力補助）
+        if (!els.name.value) {
+          els.name.placeholder = `例）${profile.displayName || 'たろう'}`;
+        }
+      } catch (err) {
+        console.error(err);
+        setAlert('LIFFの初期化に失敗しました。LIFF IDや公開設定をご確認ください。');
+        els.loginMeta.textContent = 'LIFF状態: 初期化エラー';
+      }
+    })();
+
+    // === 送信処理 ===
+    els.form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearAlert(); clearOk();
+
+      // 入力バリデーション
+      const tempVal = parseFloat(els.temp.value);
+      if (Number.isNaN(tempVal) || tempVal < 34 || tempVal > 41) {
+        setAlert('体温は34.0〜41.0の範囲で入力してください。');
+        return;
+      }
+      if (!els.condition.value) {
+        setAlert('体調を選択してください。');
+        return;
+      }
+      if (!els.userId.value) {
+        setAlert('ユーザーIDが取得できませんでした。LINEアプリ内で開いているかご確認ください。');
+        return;
+      }
+
+      const payload = {
+        name: els.name.value.trim(),
+        temp: tempVal,
+        condition: els.condition.value,
+        message: els.message.value.trim(),
+        userId: els.userId.value,
+      };
+
+      // 送信時間（端末側）をログとして同送したい場合
+      els.clientTime.value = new Date().toISOString();
+      payload.clientTime = els.clientTime.value;
+
+      try {
+        setLoading(true);
+        const res = await fetch(GAS_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        // GAS側でCORSレスポンスが出ない場合もあるためbest-effortで処理
+        let ok = res.ok;
+        try {
+          const data = await res.json();
+          ok = ok && (data.status === 'success');
+        } catch (_) {}
+
+        if (!ok) throw new Error('サーバーエラー');
+
+        setOk('送信しました。ご入力ありがとうございます。');
+        els.form.reset();
+
+        // LIFF内ならウィンドウを閉じる（好みに応じてコメントアウト）
+        setTimeout(() => { if (liff && liff.isInClient()) liff.closeWindow(); }, 800);
+      } catch (err) {
+        console.error(err);
+        setAlert('送信に失敗しました。通信環境やURL設定（GAS公開URL）をご確認ください。');
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    // 閉じるボタン
+    els.closeBtn.addEventListener('click', () => {
+      if (liff && liff.isInClient()) {
+        liff.closeWindow();
+      } else {
+        window.history.length > 1 ? history.back() : window.close();
+      }
+    });
+  </script>
+</body>
+</html>
