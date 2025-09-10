@@ -1,1 +1,96 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>先生用連絡帳</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+body { font-family: system-ui; margin: 0; padding: 16px; background: #f6f7fb; }
+h1 { text-align: center; }
+.card { background: #fff; padding: 16px; border-radius: 12px; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+.card strong { display: block; font-size: 16px; margin-bottom: 4px; }
+.card p { margin: 4px 0; font-size: 14px; }
+textarea { width: 100%; height: 60px; margin-top: 8px; border-radius: 8px; padding: 8px; border: 1px solid #ccc; resize: vertical; }
+button { margin-top: 8px; padding: 8px 12px; border: none; border-radius: 8px; background: #06C755; color: #fff; cursor: pointer; }
+button:disabled { background: #ccc; cursor: not-allowed; }
+</style>
+</head>
+<body>
+<h1>今日の連絡帳（最新）</h1>
+<div id="reportList"></div>
+
+<script>
+const LIFF_ID = "★あなたのLIFF_ID★"; // LIFF IDを入力
+const GAS_GET_URL = "★あなたのGAS_Webアプリ_URL★"; // doGet用
+const GAS_POST_URL = "★あなたのGAS_Webアプリ_URL★"; // doPost用（返信列に書き込む用）
+
+const reportList = document.getElementById('reportList');
+
+async function init() {
+  try {
+    await liff.init({ liffId: LIFF_ID });
+    if (!liff.isLoggedIn()) liff.login();
+
+    // 最新連絡帳取得
+    const res = await fetch(GAS_GET_URL);
+    const reports = await res.json();
+
+    reports.forEach(r => {
+      const div = document.createElement('div');
+      div.className = 'card';
+      div.innerHTML = `
+        <strong>${r[1]}</strong> （体温: ${r[2]}℃ / 体調: ${r[3]}） 
+        <p>${r[4]}</p>
+        <textarea placeholder="返信を入力"></textarea>
+        <button>送信</button>
+      `;
+      const btn = div.querySelector('button');
+      const textarea = div.querySelector('textarea');
+
+      btn.addEventListener('click', async () => {
+        if (!textarea.value.trim()) return alert('返信を入力してください');
+
+        // スプレッドシートに返信を書き込む
+        const payload = {
+          row: r[0], // 日時をユニークキー代わりに使う
+          message: textarea.value.trim(),
+          userId: r[5] // LINE ID
+        };
+
+        try {
+          btn.disabled = true;
+          const res = await fetch(GAS_POST_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          if (data.status === 'success') {
+            alert('返信を送信しました');
+            textarea.value = '';
+          } else {
+            alert('送信に失敗しました');
+          }
+        } catch (err) {
+          console.error(err);
+          alert('通信エラーが発生しました');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      reportList.appendChild(div);
+    });
+  } catch (err) {
+    console.error(err);
+    reportList.innerHTML = '<p>LIFFの初期化に失敗しました。LIFF IDや公開設定を確認してください。</p>';
+  }
+}
+
+// 初期化
+init();
+</script>
+</body>
+</html>
 
